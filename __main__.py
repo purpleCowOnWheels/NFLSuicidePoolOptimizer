@@ -20,4 +20,4 @@ schedule    = nsp._addWinProbsToSchedule(schedule, win_probs, defaults.schedule_
 print(schedule)
 
 #pdb.set_trace()
-test = nsp.getBestPicks( schedule, defaults.used_teams, defaults.last_week )
+test = nsp.getBestPicks( schedule, defaults.used_teams, defaults.fixed_teams, defaults.last_week )

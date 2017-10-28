@@ -39,3 +39,5 @@ schedule_ELO_name_mapping = {
     'Tennessee Titans': 'Tennessee',
     'Washington Redskins': 'Washington',
 }
+
+fixed_teams = {} #{ '9': 'Seattle Seahawks'}
