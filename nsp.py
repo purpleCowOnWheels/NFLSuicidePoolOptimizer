@@ -1,8 +1,9 @@
 import pandas as pd
 import re
 import timestring
-import pdb
+#import pdb
 import sys
+import defaults
 from os import system
 from random import sample
 from requests import get
@@ -64,31 +65,26 @@ def getPicks( schedule, these_used_teams, these_fixed_teams, last_week ):
     weeks = list( set( schedule.Week ) )
     weeks.sort()
     for week in weeks:
-        #pick a winner in a given week
-        
         remaining_weeks = max(weeks) - week + 1 #inclusive of this week
         
-        #candidates are all favorites that have not been used or fixed to another week 
+                
+        #pick a winner for this week. candidates are all favorites that have not been used or fixed to another week 
         this_schedule   = schedule[schedule.Week == week ]
         this_schedule   = this_schedule[~( schedule.favorite.isin(these_used_teams) ) ]
         favorites       = this_schedule.favorite[~this_schedule.favorite.isin(these_fixed_teams.values())]
 
-        #additionally, if there are k candidates and N weeks remaining (inclusive of this week), we should only consider top N candidates as we cannot use up all the other candidates. Note that this_schedule is already sorted by fProb (desc).
+        #additionally, if there are k candidates and N weeks remaining (inclusive of this week), we should only consider top N candidates as we cannot use up all the other candidates later. Note that this_schedule is already sorted by fProb (desc).
         favorites       = favorites[:remaining_weeks]
         candidates      = set(favorites)
-        #print( 'candidates: ', candidates )
         if str(week) in these_fixed_teams.keys():
             this_team = these_fixed_teams[str(week)]
-        #elif( week == last_week ):
-            #take the best remaining probability
-            #this_team = this_schedule.favorite.iloc[0]
         else:
             this_team = sample(candidates, 1)[0]
         these_used_teams.append(this_team)
         probs.append(float(this_schedule.fProb[this_schedule.favorite == this_team]))
     return(pickPath( these_used_teams, probs, prod(probs)))
 
-def getFixedTeams( bestPicks, weeks, fixAt = 0.7, nUnfixed = 5 ):
+def getFixedTeams( bestPicks, weeks, fixAt = defaults.fixAt, nUnfixed = defaults.nUnfixed ):
     if fixAt <= 0.5:
         sys.exit('fixing out at less than 50% can give odd results. Try something larger')
     fixed_teams = {}
@@ -114,7 +110,7 @@ def printBestPicks( bestPicks, fixed_teams, printCount ):
             print( printCount )
         print( 'Fixed Teams (', str(len(fixed_teams)), '): ' , fixed_teams)
         
-def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = 25, nUnfixed = 3, timeout = 120 ):
+def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = defaults.nBest, nUnfixed = defaults.nUnfixed, timeout = 120 ):
     bestPicks   = []
     counter     = 0
     printCount  = ''
@@ -170,11 +166,11 @@ class pickPath:
         self.picks      = picks
         self.probs      = probs
         self.surv       = surv
-        self.pathValue  = self.valuePath(valMethod = 'linear')
+        self.pathValue  = self.valuePath(valMethod = defaults.valMethod)
     
-    def valuePath(self, valMethod = 'hyperbola'):
+    def valuePath(self, valMethod = 'hyperbolic'):
         #pdb.set_trace()
-        if valMethod == 'hyperbola':
+        if valMethod == 'hyperbolic':
             return dot( self.probs, [1/x for x in range(1, len(self.probs)+1)])
         elif valMethod == 'linear':
             return prod(self.probs)
