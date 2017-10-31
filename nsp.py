@@ -7,7 +7,7 @@ from os import system
 from random import sample
 from requests import get
 from datetime import date, datetime
-from numpy import concatenate, prod, unique
+from numpy import concatenate, prod, unique, dot
 #sys.path.append( 'C:/Users/danie/Dropbox/Projects/EntityResolution' )
 #from ClassEntityResolution import *
 
@@ -59,13 +59,24 @@ def _addWinProbsToSchedule(schedule, winProbs, name_map):
 def getPicks( schedule, these_used_teams, these_fixed_teams, last_week ):
     #a function to pick a possible set of team selections to be evaluated
     probs = []
-    weeks = set( schedule.Week )
+    
+    #get unique, ordered list of remaining weeks in the season
+    weeks = list( set( schedule.Week ) )
+    weeks.sort()
     for week in weeks:
         #pick a winner in a given week
-        #candidates are all favorites
+        
+        remaining_weeks = max(weeks) - week + 1 #inclusive of this week
+        
+        #candidates are all favorites that have not been used or fixed to another week 
         this_schedule   = schedule[schedule.Week == week ]
         this_schedule   = this_schedule[~( schedule.favorite.isin(these_used_teams) ) ]
-        candidates      = set(this_schedule.favorite[~schedule.favorite.isin(these_fixed_teams.values())])
+        favorites       = this_schedule.favorite[~this_schedule.favorite.isin(these_fixed_teams.values())]
+
+        #additionally, if there are k candidates and N weeks remaining (inclusive of this week), we should only consider top N candidates as we cannot use up all the other candidates. Note that this_schedule is already sorted by fProb (desc).
+        favorites       = favorites[:remaining_weeks]
+        candidates      = set(favorites)
+        #print( 'candidates: ', candidates )
         if str(week) in these_fixed_teams.keys():
             this_team = these_fixed_teams[str(week)]
         #elif( week == last_week ):
@@ -77,11 +88,15 @@ def getPicks( schedule, these_used_teams, these_fixed_teams, last_week ):
         probs.append(float(this_schedule.fProb[this_schedule.favorite == this_team]))
     return(pickPath( these_used_teams, probs, prod(probs)))
 
-def getFixedTeams( bestPicks, weeks, fixAt = 0.7 ):
+def getFixedTeams( bestPicks, weeks, fixAt = 0.7, nUnfixed = 5 ):
     if fixAt <= 0.5:
         sys.exit('fixing out at less than 50% can give odd results. Try something larger')
     fixed_teams = {}
     for week in weeks:
+        #don't fix weeks with very few remaining choices or the last week will very quickly fix at the local max
+        if max(weeks) - week + 1 <= nUnfixed:
+            return(fixed_teams)
+        
         #get all picks this week across all the bestPick paths
         picks_this_week = [season.picks[week - min(weeks) ] for season in bestPicks]
         uniq_picks_n    = unique(picks_this_week, return_counts = True)
@@ -99,7 +114,7 @@ def printBestPicks( bestPicks, fixed_teams, printCount ):
             print( printCount )
         print( 'Fixed Teams (', str(len(fixed_teams)), '): ' , fixed_teams)
         
-def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = 10, timeout = 120 ):
+def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = 25, nUnfixed = 3, timeout = 120 ):
     bestPicks   = []
     counter     = 0
     printCount  = ''
@@ -111,14 +126,16 @@ def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = 10, time
             these_fixed_teams = dict(fixed_teams)
         else:
             prior_fixed_teams   = dict(these_fixed_teams)
-            these_fixed_teams   = getFixedTeams(bestPicks, set(schedule.Week))
-#            if len(these_fixed_teams) > 0:
-#                pdb.set_trace()
+            these_fixed_teams   = getFixedTeams(bestPicks, set(schedule.Week), nUnfixed = nUnfixed)
+
+            #once all the other weeks are optimized, go ahead and solve the last few weeks
+            if (len(these_fixed_teams)+nUnfixed) == len(set(schedule.Week)):
+                these_fixed_teams   = getFixedTeams(bestPicks, set(schedule.Week), nUnfixed = 0)
         
         #if its not finding anything new or all paths are now fixed, quit
         if ( datetime.now() - last_winner ).seconds >= timeout:
             printBestPicks( bestPicks, these_fixed_teams, printCount)
-            print(schedule[schedule.Week == min(schedule.Week)])            
+            print(schedule[schedule.Week == min(schedule.Week)])
             break
         if len(these_fixed_teams) == len(set(schedule.Week)):
             printBestPicks( bestPicks, these_fixed_teams, printCount)
@@ -145,16 +162,27 @@ def getBestPicks( schedule, used_teams, fixed_teams, last_week, nBest = 10, time
 class pickPath:
     def __init__(
         self,
-        picks   = [ ], #array of team names of picked winners
-        probs   = [ ], #probabilities of winning assocaited with each pick
-        surv    = 0,   #total survival probability
+        picks       = [ ],  #array of team names of picked winners
+        probs       = [ ],  #probabilities of winning assocaited with each pick
+        surv        = 0,    #total survival probability
+        pathValue   = 0,      #determined from the value function valuePath from probs - allows weighing earlier games higher
     ):
-        self.picks  = picks
-        self.probs  = probs
-        self.surv   = surv
+        self.picks      = picks
+        self.probs      = probs
+        self.surv       = surv
+        self.pathValue  = self.valuePath(valMethod = 'linear')
+    
+    def valuePath(self, valMethod = 'hyperbola'):
+        #pdb.set_trace()
+        if valMethod == 'hyperbola':
+            return dot( self.probs, [1/x for x in range(1, len(self.probs)+1)])
+        elif valMethod == 'linear':
+            return prod(self.probs)
+        else:
+            sys.exit('Undefined valueType')
     
     def __lt__(self, other):
-         return(self.surv < other.surv)
+         return(self.pathValue < other.pathValue)
     
     def __str__(self):
         return( ', '.join( self.picks ) )
